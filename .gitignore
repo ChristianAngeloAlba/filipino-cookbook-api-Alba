@@ -1,0 +1,11 @@
+/vendor/
+
+.env
+.env.local
+
+config.php
+config.local.php
+
+*.log
+Thumbs.db
+.DS_Store
