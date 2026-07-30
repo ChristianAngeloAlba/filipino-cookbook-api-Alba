@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Filipino Cookbook API
 
 A RESTful API developed using **PHP**, **Slim Framework**, and **MySQL** that provides information about Filipino dishes, including their categories, origins, ingredients, and cooking instructions.
@@ -434,3 +435,7 @@ Without a Bearer Token:
 **Course:** BS Information Technology
 
 **Subject:** System Integration and Architecture 2
+=======
+# filipino-cookbook-api-Alba
+Filipimo Cookbook API
+>>>>>>> 806d96dd246c7a6d8cc16172bb8aeb8941af26af
