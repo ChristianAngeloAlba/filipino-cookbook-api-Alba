@@ -411,14 +411,12 @@ Include screenshots showing:
 * Search by Category
 * Search by Origin
 * Search by Ingredient
-* Global Search
 * Advanced Search
 * Get Categories
 * Get Ingredients
 * Add Food
 * Delete Food
-* Unauthorized Request (401)
-* Duplicate Food Validation (409)
+
 
 ---
 
@@ -431,7 +429,5 @@ Include screenshots showing:
 **Subject:** System Integration and Architecture 2
 
 **Framework:** Slim Framework 4
-
-**Language:** PHP 8.x
 
 **Database:** MySQL
