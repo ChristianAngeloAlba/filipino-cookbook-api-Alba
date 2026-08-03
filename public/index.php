@@ -1,4 +1,6 @@
 <?php
+//christian angelo a. alba
+//V-2
 // ============================================
 // LOAD SLIM FRAMEWORK
 // ============================================
@@ -180,6 +182,319 @@ $app->group('/api', function ($group) {
         }
     });
 
+    // ============================================
+    // NEW: GLOBAL SEARCH - SEARCH EVERYTHING
+    // ============================================
+    $group->get('/search/{term}', function (Request $request, Response $response, array $args) {
+        try {
+            $pdo = getDBConnection();
+            $search_term = '%' . $args['term'] . '%';
+            
+            $results = [
+                'foods' => [],
+                'ingredients' => [],
+                'categories' => [],
+                'origins' => []
+            ];
+            
+            // Search foods
+            $stmt = $pdo->prepare("
+                SELECT f.food_id, f.food_name, c.category_name, o.origin_name, f.instructions
+                FROM foods f
+                JOIN categories c ON f.category_id = c.category_id
+                JOIN origins o ON f.origin_id = o.origin_id
+                WHERE f.food_name LIKE :search_term 
+                   OR f.instructions LIKE :search_term
+                   OR c.category_name LIKE :search_term
+                   OR o.origin_name LIKE :search_term
+                ORDER BY f.food_name
+            ");
+            $stmt->execute(['search_term' => $search_term]);
+            $foods = $stmt->fetchAll();
+            
+            foreach ($foods as &$food) {
+                $food['ingredients'] = getFoodIngredients($pdo, $food['food_id']);
+            }
+            $results['foods'] = $foods;
+            
+            // Search ingredients
+            $stmt = $pdo->prepare("
+                SELECT i.*, COUNT(fi.food_id) as food_count
+                FROM ingredients i
+                LEFT JOIN food_ingredients fi ON i.ingredient_id = fi.ingredient_id
+                WHERE i.ingredient_name LIKE :search_term
+                GROUP BY i.ingredient_id
+                ORDER BY i.ingredient_name
+            ");
+            $stmt->execute(['search_term' => $search_term]);
+            $results['ingredients'] = $stmt->fetchAll();
+            
+            // Search categories
+            $stmt = $pdo->prepare("
+                SELECT c.*, COUNT(f.food_id) as food_count
+                FROM categories c
+                LEFT JOIN foods f ON c.category_id = f.category_id
+                WHERE c.category_name LIKE :search_term
+                GROUP BY c.category_id
+                ORDER BY c.category_name
+            ");
+            $stmt->execute(['search_term' => $search_term]);
+            $results['categories'] = $stmt->fetchAll();
+            
+            // Search origins
+            $stmt = $pdo->prepare("
+                SELECT o.*, COUNT(f.food_id) as food_count
+                FROM origins o
+                LEFT JOIN foods f ON o.origin_id = f.origin_id
+                WHERE o.origin_name LIKE :search_term
+                GROUP BY o.origin_id
+                ORDER BY o.origin_name
+            ");
+            $stmt->execute(['search_term' => $search_term]);
+            $results['origins'] = $stmt->fetchAll();
+            
+            // Check if any results found
+            $hasResults = !empty($results['foods']) || 
+                         !empty($results['ingredients']) || 
+                         !empty($results['categories']) || 
+                         !empty($results['origins']);
+            
+            if (!$hasResults) {
+                return jsonResponse($response, [
+                    'status' => 'error',
+                    'message' => 'No results found for: ' . $args['term']
+                ], 404);
+            }
+            
+            return jsonResponse($response, [
+                'status' => 'success',
+                'search_term' => $args['term'],
+                'total_results' => [
+                    'foods' => count($results['foods']),
+                    'ingredients' => count($results['ingredients']),
+                    'categories' => count($results['categories']),
+                    'origins' => count($results['origins'])
+                ],
+                'data' => $results
+            ]);
+            
+        } catch (Exception $e) {
+            return jsonResponse($response, [
+                'status' => 'error',
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    });
+
+    // ============================================
+    // NEW: SEARCH FOODS BY INGREDIENT
+    // ============================================
+    $group->get('/foods/by-ingredient/{ingredient_name}', function (Request $request, Response $response, array $args) {
+        try {
+            $pdo = getDBConnection();
+            $search_term = '%' . $args['ingredient_name'] . '%';
+            
+            $stmt = $pdo->prepare("
+                SELECT DISTINCT f.food_id, f.food_name, c.category_name, o.origin_name, f.instructions
+                FROM foods f
+                JOIN categories c ON f.category_id = c.category_id
+                JOIN origins o ON f.origin_id = o.origin_id
+                JOIN food_ingredients fi ON f.food_id = fi.food_id
+                JOIN ingredients i ON fi.ingredient_id = i.ingredient_id
+                WHERE i.ingredient_name LIKE :search_term
+                ORDER BY f.food_name
+            ");
+            $stmt->execute(['search_term' => $search_term]);
+            $foods = $stmt->fetchAll();
+            
+            if (empty($foods)) {
+                return jsonResponse($response, [
+                    'status' => 'error',
+                    'message' => 'No foods found with ingredient: ' . $args['ingredient_name']
+                ], 404);
+            }
+            
+            foreach ($foods as &$food) {
+                $food['ingredients'] = getFoodIngredients($pdo, $food['food_id']);
+            }
+            
+            return jsonResponse($response, [
+                'status' => 'success',
+                'search_ingredient' => $args['ingredient_name'],
+                'count' => count($foods),
+                'data' => $foods
+            ]);
+            
+        } catch (Exception $e) {
+            return jsonResponse($response, [
+                'status' => 'error',
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    });
+
+    // ============================================
+    // NEW: SEARCH FOODS BY CATEGORY
+    // ============================================
+    $group->get('/foods/by-category/{category_name}', function (Request $request, Response $response, array $args) {
+        try {
+            $pdo = getDBConnection();
+            $search_term = '%' . $args['category_name'] . '%';
+            
+            $stmt = $pdo->prepare("
+                SELECT f.food_id, f.food_name, c.category_name, o.origin_name, f.instructions
+                FROM foods f
+                JOIN categories c ON f.category_id = c.category_id
+                JOIN origins o ON f.origin_id = o.origin_id
+                WHERE c.category_name LIKE :search_term
+                ORDER BY f.food_name
+            ");
+            $stmt->execute(['search_term' => $search_term]);
+            $foods = $stmt->fetchAll();
+            
+            if (empty($foods)) {
+                return jsonResponse($response, [
+                    'status' => 'error',
+                    'message' => 'No foods found in category: ' . $args['category_name']
+                ], 404);
+            }
+            
+            foreach ($foods as &$food) {
+                $food['ingredients'] = getFoodIngredients($pdo, $food['food_id']);
+            }
+            
+            return jsonResponse($response, [
+                'status' => 'success',
+                'category' => $args['category_name'],
+                'count' => count($foods),
+                'data' => $foods
+            ]);
+            
+        } catch (Exception $e) {
+            return jsonResponse($response, [
+                'status' => 'error',
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    });
+
+    // ============================================
+    // NEW: SEARCH FOODS BY ORIGIN
+    // ============================================
+    $group->get('/foods/by-origin/{origin_name}', function (Request $request, Response $response, array $args) {
+        try {
+            $pdo = getDBConnection();
+            $search_term = '%' . $args['origin_name'] . '%';
+            
+            $stmt = $pdo->prepare("
+                SELECT f.food_id, f.food_name, c.category_name, o.origin_name, f.instructions
+                FROM foods f
+                JOIN categories c ON f.category_id = c.category_id
+                JOIN origins o ON f.origin_id = o.origin_id
+                WHERE o.origin_name LIKE :search_term
+                ORDER BY f.food_name
+            ");
+            $stmt->execute(['search_term' => $search_term]);
+            $foods = $stmt->fetchAll();
+            
+            if (empty($foods)) {
+                return jsonResponse($response, [
+                    'status' => 'error',
+                    'message' => 'No foods found from origin: ' . $args['origin_name']
+                ], 404);
+            }
+            
+            foreach ($foods as &$food) {
+                $food['ingredients'] = getFoodIngredients($pdo, $food['food_id']);
+            }
+            
+            return jsonResponse($response, [
+                'status' => 'success',
+                'origin' => $args['origin_name'],
+                'count' => count($foods),
+                'data' => $foods
+            ]);
+            
+        } catch (Exception $e) {
+            return jsonResponse($response, [
+                'status' => 'error',
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    });
+
+    // ============================================
+    // NEW: ADVANCED SEARCH WITH MULTIPLE PARAMETERS
+    // ============================================
+    $group->get('/foods/advanced-search', function (Request $request, Response $response) {
+        try {
+            $pdo = getDBConnection();
+            $params = $request->getQueryParams();
+            
+            $query = "
+                SELECT DISTINCT f.food_id, f.food_name, c.category_name, o.origin_name, f.instructions
+                FROM foods f
+                JOIN categories c ON f.category_id = c.category_id
+                JOIN origins o ON f.origin_id = o.origin_id
+                LEFT JOIN food_ingredients fi ON f.food_id = fi.food_id
+                LEFT JOIN ingredients i ON fi.ingredient_id = i.ingredient_id
+                WHERE 1=1
+            ";
+            
+            $bindings = [];
+            
+            if (!empty($params['food_name'])) {
+                $query .= " AND f.food_name LIKE :food_name";
+                $bindings['food_name'] = '%' . $params['food_name'] . '%';
+            }
+            
+            if (!empty($params['category'])) {
+                $query .= " AND c.category_name LIKE :category";
+                $bindings['category'] = '%' . $params['category'] . '%';
+            }
+            
+            if (!empty($params['origin'])) {
+                $query .= " AND o.origin_name LIKE :origin";
+                $bindings['origin'] = '%' . $params['origin'] . '%';
+            }
+            
+            if (!empty($params['ingredient'])) {
+                $query .= " AND i.ingredient_name LIKE :ingredient";
+                $bindings['ingredient'] = '%' . $params['ingredient'] . '%';
+            }
+            
+            $query .= " ORDER BY f.food_name";
+            
+            $stmt = $pdo->prepare($query);
+            $stmt->execute($bindings);
+            $foods = $stmt->fetchAll();
+            
+            if (empty($foods)) {
+                return jsonResponse($response, [
+                    'status' => 'error',
+                    'message' => 'No foods found matching your criteria'
+                ], 404);
+            }
+            
+            foreach ($foods as &$food) {
+                $food['ingredients'] = getFoodIngredients($pdo, $food['food_id']);
+            }
+            
+            return jsonResponse($response, [
+                'status' => 'success',
+                'count' => count($foods),
+                'search_params' => $params,
+                'data' => $foods
+            ]);
+            
+        } catch (Exception $e) {
+            return jsonResponse($response, [
+                'status' => 'error',
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    });
+
     // GET CATEGORIES
     $group->get('/categories', function (Request $request, Response $response) {
         try {
@@ -214,7 +529,8 @@ $app->group('/api', function ($group) {
                 !isset($body['origin_id']) || !isset($body['instructions']) || !isset($body['ingredient_ids'])) {
                 return jsonResponse($response, ['status' => 'error', 'message' => 'Missing required fields'], 400);
             }
-                        // Check for duplicate food name
+            
+            // Check for duplicate food name
             $stmt = $pdo->prepare("SELECT food_id FROM foods WHERE LOWER(food_name) = LOWER(:food_name)");
             $stmt->execute(['food_name' => $body['food_name']]);
             if ($stmt->fetch()) {
@@ -247,6 +563,7 @@ $app->group('/api', function ($group) {
             return jsonResponse($response, ['status' => 'error', 'message' => $e->getMessage()], 500);
         }
     });
+
     // DELETE FOOD BY ID
     $group->delete('/foods/{id:[0-9]+}', function (Request $request, Response $response, array $args) {
         try {
@@ -281,6 +598,7 @@ $app->group('/api', function ($group) {
             ], 500);
         }
     });
+
 })->add(function ($request, $handler) {
     // Token validation middleware
     if (!validateToken($request)) {
